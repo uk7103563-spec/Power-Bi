@@ -4,6 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Security Enhancements -->
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.sheetjs.com 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self';">
+    <meta name="referrer" content="no-referrer">
     <title>Enterprise Strategic Intelligence Unit | Dynamic AI BI</title>
 
     <!-- External Assets -->
@@ -371,10 +375,10 @@
 
         <div class="control">
             <label class="label">Choose Perspective</label>
-            <select id="role" onchange="resetDashboard()">
+            <select id="role" onchange="checkRoleAccess()">
                 <option value="executive">Executive Viewer</option>
                 <option value="analyst" selected>Strategic Analyst</option>
-                <option value="admin">System Admin</option>
+                <option value="admin">System Admin [Locked]</option>
             </select>
         </div>
 
@@ -544,6 +548,14 @@
                                 characteristics and metadata of the locally cached strategic dataset.</p>
                             <button class="btn-activate" style="width: 100%; background: var(--accent-secondary);"
                                 onclick="auditStorage()">AUDIT LOCAL PERSISTENCE</button>
+                        </div>
+                        <div class="card"
+                            style="background: rgba(239, 68, 68, 0.05); border: 1px dashed var(--danger);">
+                            <h3 class="label">🔒 Security Lock</h3>
+                            <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">Securely log
+                                out and clear the administrative session cache immediately.</p>
+                            <button class="btn-activate" style="width: 100%; background: var(--danger);"
+                                onclick="lockSystem()">SYSTEM LOCKDOWN</button>
                         </div>
                     </div>
 
@@ -721,6 +733,16 @@
 
         // --- Session Persistence & Stabilization ---
         window.onload = () => {
+            // Check for security redirect
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('role') === 'admin') {
+                if (sessionStorage.getItem('admin_auth') === 'true') {
+                    document.getElementById('role').value = 'admin';
+                } else {
+                    window.location.href = 'admin.html';
+                }
+            }
+
             const session = sessionStorage.getItem('bi_persistence_layer');
             const state = sessionStorage.getItem('bi_state_config');
 
@@ -728,6 +750,11 @@
                 masterData = JSON.parse(session);
                 if (state) {
                     const cfg = JSON.parse(state);
+                    // Ensure we don't restore admin without auth
+                    if (cfg.role === 'admin' && sessionStorage.getItem('admin_auth') !== 'true') {
+                        cfg.role = 'analyst';
+                    }
+
                     document.getElementById('role').value = cfg.role;
                     document.getElementById('graph').value = cfg.graph;
 
@@ -741,6 +768,25 @@
                 }
             }
         };
+
+        function checkRoleAccess() {
+            const role = document.getElementById('role').value;
+            if (role === 'admin') {
+                if (sessionStorage.getItem('admin_auth') !== 'true') {
+                    // Redirect to secure gateway
+                    window.location.href = 'admin.html';
+                    return;
+                }
+            }
+            resetDashboard();
+        }
+
+        function lockSystem() {
+            sessionStorage.removeItem('admin_auth');
+            sessionStorage.removeItem('auth_timestamp');
+            alert("SYSTEM SECURED. REDIRECTING TO GATEWAY.");
+            window.location.href = 'admin.html';
+        }
 
         function saveConfig() {
             const cfg = {
@@ -791,7 +837,12 @@
 
             renderKPIs(role, yVal);
             renderChart(gType, xVal, yVal);
-            if (role === 'admin') renderTrace();
+            if (role === 'admin') {
+                renderTrace();
+                startSecurityTimer();
+            } else {
+                stopSecurityTimer();
+            }
 
             // Executive Priority: Show Data Table
             const execDataBox = document.getElementById('executive-data-view');
@@ -1081,6 +1132,30 @@
                 document.getElementById('timer').innerText = `Audit Executed: ${new Date().toLocaleTimeString()}`;
             }, 600); // Slightly faster for better UX
         }
+
+        let securityTimeout;
+        function startSecurityTimer() {
+            stopSecurityTimer();
+            // 5 minutes of inactivity auto-lock
+            securityTimeout = setTimeout(() => {
+                if (document.getElementById('role').value === 'admin') {
+                    lockSystem();
+                }
+            }, 300000);
+            console.log("Security Monitor: ACTIVE");
+        }
+
+        function stopSecurityTimer() {
+            if (securityTimeout) clearTimeout(securityTimeout);
+        }
+
+        // Reset timer on user interaction
+        document.addEventListener('mousemove', () => {
+            if (document.getElementById('role').value === 'admin') startSecurityTimer();
+        });
+        document.addEventListener('keypress', () => {
+            if (document.getElementById('role').value === 'admin') startSecurityTimer();
+        });
 
         function renderKPIs(role, yCol) {
             const row = document.getElementById('kpi-out'); row.textContent = '';
